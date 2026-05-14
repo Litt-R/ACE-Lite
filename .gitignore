@@ -1,0 +1,98 @@
+# Private project notes / agent rules
+project_rule.md
+PRIVATE_NOTES.md
+.local-notes/
+
+# Dependencies
+node_modules/
+.pnp.*
+
+# Package-manager caches
+.npm/
+.pnpm-store/
+.yarn/*
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/sdks/
+!.yarn/versions/
+
+# Frontend build output / caches
+dist/
+dist-ssr/
+build/
+out/
+coverage/
+.vite/
+.cache/
+.turbo/
+.parcel-cache/
+
+# Tauri / Rust generated output
+src-tauri/target/
+src-tauri/gen/schemas/
+**/*.rs.bk
+*.pdb
+
+# Python local runtime / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.envrc
+.conda/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local environment / secrets
+.env
+.env.*
+*.local
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
+*.kdbx
+
+# Editor and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local release / portable archives
+便携版/
+release/
+releases/
+artifacts/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.msi
+*.msix
+*.appx
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.AppImage

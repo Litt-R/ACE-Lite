@@ -1,0 +1,38 @@
+[package]
+name = "ace-lite"
+version = "0.1.0"
+description = "ACE-Lite 是一个本地 ACE 资源调度优化工具"
+authors = ["Little-Rainbow"]
+license = "GPL-3.0-only"
+edition = "2021"
+
+[package.metadata.windows.manifest]
+path = "src/mainfest.xml"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "ace_lite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.10.3", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.4.0"
+tauri-plugin-fs = "2.4.2"
+tauri-plugin-opener = "2.5.0"
+tauri-plugin-shell = "2.3.1"
+tauri-plugin-process = "2.3.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.30"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_SystemInformation", "Win32_Security", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+tokio = { version = "1", features = ["full"] }
+winreg = "0.52"
+tauri-plugin-single-instance = "2.4.0"
+base64 = "0.22"

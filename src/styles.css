@@ -1,0 +1,121 @@
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+html {
+  background: #0b1120;
+  scrollbar-color: rgba(125, 211, 252, 0.42) #0b1120;
+}
+
+html[data-theme='light'] {
+  background: #eaf1fb;
+  scrollbar-color: rgba(37, 99, 235, 0.42) #eaf1fb;
+}
+
+body {
+  color: #f8fafc;
+  background: #0b1120;
+  overflow: hidden;
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+#root {
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.selectable-text {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b1120;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.42);
+  border: 2px solid #0b1120;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(125, 211, 252, 0.68);
+}
+
+.log-scroll-area::-webkit-scrollbar {
+  width: 8px;
+}
+
+.log-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+  margin: 8px 3px;
+}
+
+.log-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.34);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.log-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(125, 211, 252, 0.58);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+html[data-theme='light'] ::-webkit-scrollbar-track {
+  background: #eaf1fb;
+}
+
+html[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: rgba(37, 99, 235, 0.42);
+  border-color: #eaf1fb;
+}
+
+html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.68);
+}
+
+html[data-theme='light'] .log-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html[data-theme='light'] .log-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(37, 99, 235, 0.32);
+  border-color: transparent;
+}
+
+html[data-theme='light'] .log-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.56);
+  border-color: transparent;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
