@@ -71,7 +71,7 @@ export function PerformancePanel({
       <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={1} sx={{ mb: 1 }}>
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            资源观察
+            观察
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {monitoringEnabled ? `每 ${monitoringIntervalSeconds} 秒刷新一次 ACE 进程占用` : '刷新已暂停，减少额外资源占用'}

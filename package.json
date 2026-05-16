@@ -1,7 +1,7 @@
 {
   "name": "ace-lite",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "build": "node scripts/sync-version.cjs && tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:portable": "powershell -ExecutionPolicy Bypass -File ./build-portable.ps1"
+    "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-release.ps1",
+    "package:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-release.ps1 -SkipBuild"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

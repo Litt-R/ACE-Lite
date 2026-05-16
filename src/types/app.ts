@@ -47,6 +47,21 @@ export interface RegistryPriorityState {
   page_priority: number | null;
 }
 
+export interface StoredPriorityPolicy {
+  id: string;
+  name: string;
+  exe_name: string;
+  cpu_priority: number;
+  io_priority: number;
+  page_priority: number;
+}
+
+export interface PolicyConfig {
+  version: number;
+  config_path: string;
+  custom_policies: StoredPriorityPolicy[];
+}
+
 export type RegistryPriorityStates = Record<string, RegistryPriorityState>;
 
 export interface RestrictionSettings {

@@ -143,7 +143,10 @@ pub fn restrict_target_processes(options: RestrictionOptions) -> RestrictResult 
 
 fn target_logical_core() -> u32 {
     let system = System::new_all();
-    system.cpus().len().saturating_sub(1) as u32
+    let logical_cores = system.cpus().len();
+    let max_mask_core = usize::BITS.saturating_sub(1) as usize;
+
+    logical_cores.saturating_sub(1).min(max_mask_core) as u32
 }
 
 pub fn collect_runtime_restriction_status() -> RuntimeRestrictionStatus {

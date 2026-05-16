@@ -5,24 +5,31 @@ import { Box, Container, CssBaseline, Stack, ThemeProvider } from '@mui/material
 import { ActiveActionsCard } from './components/ActiveActionsCard';
 import { AppHeader } from './components/AppHeader';
 import { LogPanel } from './components/LogPanel';
-import { PassiveActionsCard } from './components/PassiveActionsCard';
+import { PassiveActionsCard, type CustomPriorityFormState } from './components/PassiveActionsCard';
 import { PerformancePanel } from './components/PerformancePanel';
 import { RestrictionStatusCard } from './components/RestrictionStatusCard';
 import { SystemInfoCard } from './components/SystemInfoCard';
 import { WindowTitleBar } from './components/WindowTitleBar';
 import './styles.css';
 import {
+  applyCustomPriority,
   buildPerformancePoint,
   checkAutoStartStatus,
   checkRegistryPriorityCommand,
   executeTextCommand,
+  formatPriorityLabel,
+  formatPrioritySummary,
   getProcessPerformance,
   getRegistryPriorityStates,
   getRuntimeRestrictionStatus,
   getSystemInfo,
   hasAceProcess,
+  loadPolicyConfig,
+  requestElevation,
+  resetCustomPriority,
   resetRegistryPriorityCommand,
   restrictProcesses,
+  savePolicyConfig,
   setAutoStartState,
   startupPolicyDefinitions,
   type LoggedCommandDefinition,
@@ -38,11 +45,13 @@ import type {
   RestrictionSettingKey,
   RestrictionSettings,
   RuntimeRestrictionStatus,
+  StoredPriorityPolicy,
   SystemInfo,
 } from './types/app';
 import { storage } from './utils/storage';
 
 const maxVisibleHistoryPoints = 360;
+const maxStoredHistoryPoints = 1200;
 const restrictionSettingKeys: RestrictionSettingKey[] = [
   'enableCpuAffinity',
   'enableProcessPriority',
@@ -52,6 +61,83 @@ const restrictionSettingKeys: RestrictionSettingKey[] = [
   'autoRestrict',
   'autoRestrictIntervalSeconds',
 ];
+
+const emptyCustomPolicy: CustomPriorityFormState = {
+  name: '',
+  exeName: '',
+  cpuPriority: 3,
+  ioPriority: 3,
+  pagePriority: 5,
+};
+
+function normalizeExeName(exeName: string) {
+  return exeName.trim();
+}
+
+function createCustomPolicyId(exeName: string) {
+  return `custom-${normalizeExeName(exeName).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
+}
+
+function customPolicyToStored(form: CustomPriorityFormState, existingId?: string): StoredPriorityPolicy {
+  const exeName = normalizeExeName(form.exeName);
+  const displayName = form.name.trim() || exeName.replace(/\.exe$/i, '');
+
+  return {
+    id: existingId || createCustomPolicyId(exeName),
+    name: displayName,
+    exe_name: exeName,
+    cpu_priority: form.cpuPriority,
+    io_priority: form.ioPriority,
+    page_priority: form.pagePriority,
+  };
+}
+
+function storedPolicyToForm(policy: StoredPriorityPolicy): CustomPriorityFormState {
+  return {
+    name: policy.name,
+    exeName: policy.exe_name,
+    cpuPriority: policy.cpu_priority,
+    ioPriority: policy.io_priority,
+    pagePriority: policy.page_priority,
+  };
+}
+
+function formatPolicyStateSummary(
+  exeNames: string[],
+  states: RegistryPriorityStates,
+  expected: { cpuPriority: number; ioPriority: number; pagePriority: number },
+) {
+  const missingExeNames = exeNames.filter((exeName) => !states[exeName]?.configured);
+
+  if (missingExeNames.length === exeNames.length) {
+    return '未配置';
+  }
+
+  if (missingExeNames.length > 0) {
+    return `部分未配置：${missingExeNames.join('、')}`;
+  }
+
+  const mismatches = exeNames.flatMap((exeName) => {
+    const state = states[exeName];
+    const fields = [
+      state?.cpu_priority !== expected.cpuPriority ? `CPU ${formatPriorityLabel(state?.cpu_priority)}` : null,
+      state?.io_priority !== expected.ioPriority ? `I/O ${formatPriorityLabel(state?.io_priority)}` : null,
+      state?.page_priority !== expected.pagePriority ? `内存 ${formatPriorityLabel(state?.page_priority)}` : null,
+    ].filter(Boolean);
+
+    if (fields.length === 0) {
+      return [];
+    }
+
+    return exeNames.length > 1 ? `${exeName} ${fields.join(' / ')}` : fields.join(' / ');
+  });
+
+  if (mismatches.length === 0) {
+    return '已配置';
+  }
+
+  return `已配置但不一致：${mismatches.join('；')}`;
+}
 
 function App() {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -79,12 +165,15 @@ function App() {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeRestrictionStatus | null>(null);
   const lastAutoRestrictSignatureRef = useRef<string>('');
   const [registryPriorityStates, setRegistryPriorityStates] = useState<RegistryPriorityStates>({});
-
   const [startupPolicyStates, setStartupPolicyStates] = useState<Record<string, boolean>>({
     ace: false,
     valorant: false,
     league: false,
   });
+  const [customPolicies, setCustomPolicies] = useState<StoredPriorityPolicy[]>([]);
+  const [policyConfigPath, setPolicyConfigPath] = useState('');
+  const [customPolicy, setCustomPolicy] = useState<CustomPriorityFormState>(emptyCustomPolicy);
+  const [editingCustomPolicyId, setEditingCustomPolicyId] = useState<string | null>(null);
 
   const gameProcesses = performance.map((process) => process.name);
   const restrictionSettingSetters = useMemo<Record<RestrictionSettingKey, (value: boolean | number) => void>>(() => ({
@@ -121,7 +210,7 @@ function App() {
 
   const executeProcessRestriction = useCallback(async () => {
     try {
-      addLog('进程限制开始执行');
+      addLog('正在应用 ACE 限制...');
       setActiveLoading(true);
 
       const result = await restrictProcesses({
@@ -162,7 +251,7 @@ function App() {
     ].filter(Boolean).join('+') || '标准模式';
 
     setIsMonitoring(true);
-    addLog(`执行进程限制 (${enabledModes})`);
+    addLog(`应用 ACE 限制：${enabledModes}`);
 
     try {
       await executeProcessRestriction();
@@ -185,17 +274,8 @@ function App() {
 
       setSystemInfo(info);
       setTargetCore(info.cpu_logical_cores - 1);
-      addLog(`系统信息已加载: ${info.os_name} ${info.os_version}`);
-      addLog(`CPU: ${info.cpu_model}`);
-      addLog(`核心: ${info.cpu_cores} 物理 / ${info.cpu_logical_cores} 逻辑`);
-      addLog(`内存: ${info.total_memory_gb.toFixed(2)} GB`);
-      addLog(`WebView2 环境: ${info.webview2_env}`);
-
-      if (!info.is_admin) {
-        addLog('当前未以管理员权限运行，部分功能可能受限');
-      } else {
-        addLog('已获取管理员权限，可以执行 ACE 资源调度');
-      }
+      addLog(`环境已读取：${info.cpu_logical_cores} 逻辑核心 / ${info.total_memory_gb.toFixed(1)} GB 内存`);
+      addLog(info.is_admin ? '当前为管理员权限' : '当前为普通权限，写入策略前请先提权');
     } catch (error) {
       addLog(`获取系统信息失败: ${error}`);
     }
@@ -209,7 +289,7 @@ function App() {
 
       const point = buildPerformancePoint(currentPerformance);
 
-      setPerfHistory((previousHistory) => [...previousHistory, point]);
+      setPerfHistory((previousHistory) => [...previousHistory, point].slice(-maxStoredHistoryPoints));
     } catch (error) {
       console.error('获取性能数据失败:', error);
     }
@@ -237,6 +317,24 @@ function App() {
     }
   }, [autoStartEnabled, addLog, checkAutoStart]);
 
+  const loadStoredPolicyConfig = useCallback(async () => {
+    try {
+      const config = await loadPolicyConfig();
+      setCustomPolicies(config.custom_policies);
+      setPolicyConfigPath(config.config_path);
+      addLog(`策略库已读取：自定义 ${config.custom_policies.length} 项`);
+    } catch (error) {
+      addLog(`读取策略库失败: ${error}`);
+    }
+  }, [addLog]);
+
+  const persistCustomPolicies = useCallback(async (nextPolicies: StoredPriorityPolicy[]) => {
+    const config = await savePolicyConfig(nextPolicies);
+    setCustomPolicies(config.custom_policies);
+    setPolicyConfigPath(config.config_path);
+    return config.custom_policies;
+  }, []);
+
   const refreshRegistryPriorityStates = useCallback(async () => {
     try {
       const states = await getRegistryPriorityStates();
@@ -247,7 +345,7 @@ function App() {
         league: Boolean(states['League of Legends.exe']?.configured),
       });
     } catch (error) {
-      console.error('读取启动前策略状态失败:', error);
+      console.error('读取应用策略状态失败:', error);
     }
   }, []);
 
@@ -283,7 +381,7 @@ function App() {
   const toggleStartupPolicy = useCallback(async (policyId: string, enabled: boolean) => {
     const policy = startupPolicyDefinitions.find((item) => item.id === policyId);
     if (!policy) {
-      addLog(`未知启动前策略: ${policyId}`);
+      addLog(`未知内置策略: ${policyId}`);
       return;
     }
 
@@ -305,6 +403,106 @@ function App() {
       await refreshRegistryPriorityStates();
     }
   }, [refreshRegistryPriorityStates, runLoggedCommand]);
+
+  const handleRequestElevation = useCallback(async () => {
+    try {
+      addLog('正在请求管理员权限...');
+      const message = await requestElevation();
+      addLog(message);
+    } catch (error) {
+      addLog(`请求管理员权限失败: ${error}`);
+    }
+  }, [addLog]);
+
+  const handleCustomPolicyChange = useCallback((field: keyof CustomPriorityFormState, value: string | number) => {
+    setCustomPolicy((currentPolicy) => ({
+      ...currentPolicy,
+      [field]: field === 'name' || field === 'exeName' ? String(value) : Number(value),
+    }));
+  }, []);
+
+  const handleSaveCustomPolicy = useCallback(async () => {
+    const exeName = normalizeExeName(customPolicy.exeName);
+    if (!exeName) {
+      addLog('请先填写程序名');
+      return;
+    }
+
+    try {
+      setRegistryLoading(true);
+      const savedPolicy = customPolicyToStored(customPolicy, editingCustomPolicyId ?? undefined);
+      const duplicatePolicy = customPolicies.find((policy) => (
+        policy.id !== savedPolicy.id && policy.exe_name.toLowerCase() === savedPolicy.exe_name.toLowerCase()
+      ));
+
+      if (duplicatePolicy) {
+        addLog(`策略库已存在程序：${duplicatePolicy.exe_name}`);
+        return;
+      }
+
+      const nextPolicies = editingCustomPolicyId
+        ? customPolicies.map((policy) => (policy.id === editingCustomPolicyId ? savedPolicy : policy))
+        : [...customPolicies, savedPolicy];
+
+      await persistCustomPolicies(nextPolicies);
+      setCustomPolicy(emptyCustomPolicy);
+      setEditingCustomPolicyId(null);
+      addLog(`自定义策略已保存：${savedPolicy.name}（${savedPolicy.exe_name}，${formatPrioritySummary(savedPolicy.cpu_priority, savedPolicy.io_priority, savedPolicy.page_priority)}）`);
+    } catch (error) {
+      addLog(`保存自定义策略失败: ${error}`);
+    } finally {
+      setRegistryLoading(false);
+    }
+  }, [addLog, customPolicies, customPolicy, editingCustomPolicyId, persistCustomPolicies]);
+
+  const handleEditCustomPolicy = useCallback((policy: StoredPriorityPolicy) => {
+    setEditingCustomPolicyId(policy.id);
+    setCustomPolicy(storedPolicyToForm(policy));
+  }, []);
+
+  const handleCancelCustomPolicyEdit = useCallback(() => {
+    setEditingCustomPolicyId(null);
+    setCustomPolicy(emptyCustomPolicy);
+  }, []);
+
+  const toggleCustomPolicy = useCallback(async (policy: StoredPriorityPolicy, enabled: boolean) => {
+    try {
+      setRegistryLoading(true);
+      const actionLabel = enabled ? '启用' : '恢复';
+      addLog(`正在${actionLabel}自定义策略：${policy.name}`);
+      const message = enabled
+        ? await applyCustomPriority({
+          exeName: policy.exe_name,
+          cpuPriority: policy.cpu_priority,
+          ioPriority: policy.io_priority,
+          pagePriority: policy.page_priority,
+        })
+        : await resetCustomPriority(policy.exe_name);
+      message.split('\n').forEach((line) => addLog(line));
+      await refreshRegistryPriorityStates();
+    } catch (error) {
+      addLog(`切换自定义策略失败: ${error}`);
+    } finally {
+      setRegistryLoading(false);
+    }
+  }, [addLog, refreshRegistryPriorityStates]);
+
+  const deleteCustomPolicy = useCallback(async (policy: StoredPriorityPolicy) => {
+    try {
+      setRegistryLoading(true);
+      const nextPolicies = customPolicies.filter((item) => item.id !== policy.id);
+      await persistCustomPolicies(nextPolicies);
+      if (editingCustomPolicyId === policy.id) {
+        setEditingCustomPolicyId(null);
+        setCustomPolicy(emptyCustomPolicy);
+      }
+      addLog(`已从策略库删除：${policy.name}`);
+    } catch (error) {
+      addLog(`删除自定义策略失败: ${error}`);
+    } finally {
+      setRegistryLoading(false);
+    }
+  }, [addLog, customPolicies, editingCustomPolicyId, persistCustomPolicies]);
 
   const exportLogs = useCallback(async () => {
     if (logs.length === 0) {
@@ -380,7 +578,8 @@ function App() {
     void checkAutoStart();
     void fetchRuntimeRestrictionStatus();
     void refreshRegistryPriorityStates();
-  }, [addLog, checkAutoStart, fetchRuntimeRestrictionStatus, fetchSystemInfo, refreshRegistryPriorityStates]);
+    void loadStoredPolicyConfig();
+  }, [addLog, checkAutoStart, fetchRuntimeRestrictionStatus, fetchSystemInfo, loadStoredPolicyConfig, refreshRegistryPriorityStates]);
 
   useEffect(() => {
     const monitoringSettings = storage.getMonitoringSettings();
@@ -454,7 +653,7 @@ function App() {
   }, [fetchRuntimeRestrictionStatus, performance]);
 
   useEffect(() => {
-    if (!autoRestrict || !systemInfo?.is_admin) {
+    if (!autoRestrict || !systemInfo?.is_admin || activeLoading) {
       return;
     }
 
@@ -483,9 +682,10 @@ function App() {
     }
 
     lastAutoRestrictSignatureRef.current = signature;
-    addLog('检测到 ACE 新进程或已勾选限制项明确未生效，自动执行运行时限制...');
+    addLog('检测到 ACE 状态变化，自动应用限制...');
     void executeProcessRestriction();
   }, [
+    activeLoading,
     addLog,
     autoRestrict,
     enableCpuAffinity,
@@ -499,8 +699,13 @@ function App() {
   ]);
 
   const handleSettingChange = useCallback((key: Exclude<RestrictionSettingKey, 'autoRestrictIntervalSeconds'>, checked: boolean) => {
+    if (key === 'autoRestrict' && checked && !systemInfo?.is_admin) {
+      addLog('自动应用需要管理员权限，请先提权');
+      return;
+    }
+
     restrictionSettingSetters[key](checked);
-  }, [restrictionSettingSetters]);
+  }, [addLog, restrictionSettingSetters, systemInfo]);
 
   const handleAutoRestrictIntervalChange = useCallback((intervalSeconds: number) => {
     setAutoRestrictIntervalSeconds(intervalSeconds);
@@ -509,12 +714,12 @@ function App() {
 
   const handleMonitoringEnabledChange = useCallback((enabled: boolean) => {
     setMonitoringEnabled(enabled);
-    addLog(enabled ? '运行观察刷新已开启' : '运行观察刷新已暂停');
+    addLog(enabled ? '观察已开启' : '观察已暂停');
   }, [addLog]);
 
   const handleMonitoringIntervalChange = useCallback((intervalSeconds: number) => {
     setMonitoringIntervalSeconds(intervalSeconds);
-    addLog(`运行观察刷新间隔已调整为 ${intervalSeconds} 秒`);
+    addLog(`观察间隔已调整为 ${intervalSeconds} 秒`);
   }, [addLog]);
 
   const toggleDarkMode = () => {
@@ -532,20 +737,41 @@ function App() {
     autoRestrict,
     autoRestrictIntervalSeconds,
   };
-  const startupPolicies = startupPolicyDefinitions.map((policy) => ({
+  const builtInPolicies = startupPolicyDefinitions.map((policy) => ({
     id: policy.id,
     label: policy.label,
     description: policy.description,
+    summary: `${formatPrioritySummary(policy.cpuPriority, policy.ioPriority, policy.pagePriority)} · ${formatPolicyStateSummary(policy.exeNames, registryPriorityStates, {
+      cpuPriority: policy.cpuPriority,
+      ioPriority: policy.ioPriority,
+      pagePriority: policy.pagePriority,
+    })}`,
     enabled: Boolean(startupPolicyStates[policy.id]),
-    stateText: policy.id === 'ace'
-      ? `ACE: ${registryPriorityStates['SGuard64.exe']?.configured ? '已写入' : '未写入'} / ${registryPriorityStates['SGuardSvc64.exe']?.configured ? '已写入' : '未写入'}`
-      : policy.id === 'valorant'
-        ? `Page:${registryPriorityStates['VALORANT-Win64-Shipping.exe']?.page_priority ?? '未设置'}`
-        : `Page:${registryPriorityStates['League of Legends.exe']?.page_priority ?? '未设置'}`,
+    builtIn: true,
     onToggle: (enabled: boolean) => {
       void toggleStartupPolicy(policy.id, enabled);
     },
   }));
+  const customPolicyItems = customPolicies.map((policy) => ({
+    id: policy.id,
+    label: policy.name,
+    description: policy.exe_name,
+    summary: `${formatPrioritySummary(policy.cpu_priority, policy.io_priority, policy.page_priority)} · ${formatPolicyStateSummary([policy.exe_name], registryPriorityStates, {
+      cpuPriority: policy.cpu_priority,
+      ioPriority: policy.io_priority,
+      pagePriority: policy.page_priority,
+    })}`,
+    enabled: Boolean(registryPriorityStates[policy.exe_name]?.configured),
+    builtIn: false,
+    onToggle: (enabled: boolean) => {
+      void toggleCustomPolicy(policy, enabled);
+    },
+    onEdit: () => handleEditCustomPolicy(policy),
+    onDelete: () => {
+      void deleteCustomPolicy(policy);
+    },
+  }));
+  const policyLibraryItems = [...builtInPolicies, ...customPolicyItems];
   const currentTheme = darkMode ? darkTheme : lightTheme;
 
   const aceDetected = hasAceProcess(performance);
@@ -573,17 +799,19 @@ function App() {
           isAdmin={isAdmin}
           aceDetected={aceDetected}
           onToggleTheme={toggleDarkMode}
+          onRequestElevation={handleRequestElevation}
         />
 
         <Stack spacing={1}>
           <SystemInfoCard systemInfo={systemInfo} />
 
-          <Box display="grid" gridTemplateColumns={{ xs: '1fr', lg: '1.15fr 0.85fr' }} gap={1}>
+          <Box display="grid" gridTemplateColumns={{ xs: '1fr', lg: '0.92fr 1.08fr' }} gap={1}>
             <ActiveActionsCard
               settings={restrictionSettings}
               autoStartEnabled={autoStartEnabled}
               loading={activeLoading}
               isMonitoring={isMonitoring}
+              isAdmin={isAdmin}
               onSettingChange={handleSettingChange}
               onToggleAutoStartup={toggleAutoStartup}
               onAutoRestrictIntervalChange={handleAutoRestrictIntervalChange}
@@ -592,13 +820,19 @@ function App() {
             <PassiveActionsCard
               loading={registryLoading}
               isAdmin={isAdmin}
-              policies={startupPolicies}
+              policies={policyLibraryItems}
+              customPolicy={customPolicy}
+              configPath={policyConfigPath}
+              editingCustomPolicyId={editingCustomPolicyId}
+              onCustomPolicyChange={handleCustomPolicyChange}
+              onSaveCustomPolicy={handleSaveCustomPolicy}
+              onCancelCustomPolicyEdit={handleCancelCustomPolicyEdit}
               onCheckRegistry={checkRegistryPriority}
               onResetRegistry={resetRegistryPriority}
             />
           </Box>
 
-          <Box display="grid" gridTemplateColumns={{ xs: '1fr', lg: 'minmax(0, 1.45fr) minmax(320px, 0.55fr)' }} gap={1} alignItems="stretch">
+          <Box display="grid" gridTemplateColumns={{ xs: '1fr', lg: 'minmax(0, 1.35fr) minmax(300px, 0.65fr)' }} gap={1} alignItems="stretch">
             <PerformancePanel
               history={displayedHistory}
               exportingReport={exportingReport}

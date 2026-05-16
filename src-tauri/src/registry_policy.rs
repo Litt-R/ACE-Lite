@@ -75,25 +75,62 @@ pub fn reset_league_priority() -> Result<String, String> {
     reset_priority_rules(LEAGUE_PRIORITY_RULES.iter().map(|rule| rule.exe_name))
 }
 
-pub fn check_managed_priorities() -> String {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+pub fn managed_exe_names() -> Vec<String> {
     MANAGED_EXE_NAMES
+        .iter()
+        .map(|exe_name| exe_name.to_string())
+        .collect()
+}
+
+pub fn check_priorities_for_exes(exe_names: &[String]) -> String {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    exe_names
         .iter()
         .map(|exe_name| read_priority_status(&hklm, exe_name))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-pub fn reset_managed_priorities() -> Result<String, String> {
-    reset_priority_rules(MANAGED_EXE_NAMES.iter().copied())
+pub fn reset_priorities_for_exes(exe_names: &[String]) -> Result<String, String> {
+    reset_priority_rules(exe_names.iter().map(String::as_str))
 }
 
-pub fn managed_priority_states() -> RegistryPriorityStates {
+pub fn priority_states_for_exes(exe_names: &[String]) -> RegistryPriorityStates {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    MANAGED_EXE_NAMES
+    exe_names
         .iter()
         .map(|exe_name| (exe_name.to_string(), read_priority_state(&hklm, exe_name)))
         .collect()
+}
+
+pub fn apply_custom_priority(
+    exe_name: String,
+    cpu_priority: u32,
+    io_priority: u32,
+    page_priority: u32,
+) -> Result<String, String> {
+    let exe_name = normalize_custom_exe_name(&exe_name)?;
+    validate_priority(cpu_priority, CPU_PRIORITY_VALUE)?;
+    validate_priority(io_priority, IO_PRIORITY_VALUE)?;
+    validate_priority(page_priority, PAGE_PRIORITY_VALUE)?;
+    require_elevated()?;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    Ok(write_single_priority_values(
+        &hklm,
+        &exe_name,
+        cpu_priority,
+        io_priority,
+        page_priority,
+    ))
+}
+
+pub fn reset_custom_priority(exe_name: String) -> Result<String, String> {
+    let exe_name = normalize_custom_exe_name(&exe_name)?;
+    require_elevated()?;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    Ok(reset_single_exe_priority(&hklm, &exe_name))
 }
 
 fn write_priority_rules(rules: &[PriorityRule]) -> Result<String, String> {
@@ -126,21 +163,40 @@ fn require_elevated() -> Result<(), String> {
     if is_elevated() {
         Ok(())
     } else {
-        Err("需要管理员权限才能修改注册表优先级。".to_string())
+        Err("需要管理员权限，请先点击提权。".to_string())
     }
 }
 
 fn write_single_priority_rule(hklm: &RegKey, rule: PriorityRule) -> String {
-    match hklm.create_subkey(perf_options_path(rule.exe_name)) {
+    write_single_priority_values(
+        hklm,
+        rule.exe_name,
+        rule.cpu_priority,
+        rule.io_priority,
+        rule.page_priority,
+    )
+}
+
+fn write_single_priority_values(
+    hklm: &RegKey,
+    exe_name: &str,
+    cpu_priority: u32,
+    io_priority: u32,
+    page_priority: u32,
+) -> String {
+    match hklm.create_subkey(perf_options_path(exe_name)) {
         Ok((key, _)) => {
-            let cpu_result = key.set_value(CPU_PRIORITY_VALUE, &rule.cpu_priority);
-            let io_result = key.set_value(IO_PRIORITY_VALUE, &rule.io_priority);
-            let page_result = key.set_value(PAGE_PRIORITY_VALUE, &rule.page_priority);
+            let cpu_result = key.set_value(CPU_PRIORITY_VALUE, &cpu_priority);
+            let io_result = key.set_value(IO_PRIORITY_VALUE, &io_priority);
+            let page_result = key.set_value(PAGE_PRIORITY_VALUE, &page_priority);
 
             match (cpu_result, io_result, page_result) {
                 (Ok(_), Ok(_), Ok(_)) => format!(
-                    "{}: 注册表优先级已写入 (CPU:{}, I/O:{}, Page:{})",
-                    rule.exe_name, rule.cpu_priority, rule.io_priority, rule.page_priority
+                    "{}: 策略已应用（CPU {} / I/O {} / 内存 {}）",
+                    exe_name,
+                    priority_label(cpu_priority),
+                    priority_label(io_priority),
+                    priority_label(page_priority)
                 ),
                 (cpu, io, page) => {
                     let mut errors = Vec::new();
@@ -151,13 +207,13 @@ fn write_single_priority_rule(hklm: &RegKey, rule: PriorityRule) -> String {
                         errors.push(format!("I/O: {}", error));
                     }
                     if let Err(error) = page {
-                        errors.push(format!("Page: {}", error));
+                        errors.push(format!("内存: {}", error));
                     }
-                    format!("{}: 设置优先级失败: {}", rule.exe_name, errors.join(", "))
+                    format!("{}: 应用失败：{}", exe_name, errors.join(", "))
                 }
             }
         }
-        Err(error) => format!("{}: 创建注册表项失败: {}", rule.exe_name, error),
+        Err(error) => format!("{}: 创建策略失败：{}", exe_name, error),
     }
 }
 
@@ -185,23 +241,23 @@ fn read_priority_status(hklm: &RegKey, exe_name: &str) -> String {
             let io_priority: Result<u32, _> = key.get_value(IO_PRIORITY_VALUE);
             let page_priority: Result<u32, _> = key.get_value(PAGE_PRIORITY_VALUE);
             let cpu_status = cpu_priority.map_or_else(
-                |_| "CPU:未设置".to_string(),
-                |value| format!("CPU:{}", value),
+                |_| "CPU 默认".to_string(),
+                |value| format!("CPU {}", priority_label(value)),
             );
             let io_status = io_priority.map_or_else(
-                |_| "I/O:未设置".to_string(),
-                |value| format!("I/O:{}", value),
+                |_| "I/O 默认".to_string(),
+                |value| format!("I/O {}", priority_label(value)),
             );
             let page_status = page_priority.map_or_else(
-                |_| "Page:未设置".to_string(),
-                |value| format!("Page:{}", value),
+                |_| "内存 默认".to_string(),
+                |value| format!("内存 {}", priority_label(value)),
             );
             format!(
-                "{}:[{},{},{}]",
+                "{}：{} / {} / {}",
                 exe_name, cpu_status, io_status, page_status
             )
         }
-        Err(_) => format!("{}:未配置", exe_name),
+        Err(_) => format!("{}：未配置", exe_name),
     }
 }
 
@@ -210,9 +266,9 @@ fn reset_single_exe_priority(hklm: &RegKey, exe_name: &str) -> String {
     match hklm.open_subkey_with_flags(&exe_path, KEY_WRITE | KEY_READ) {
         Ok(exe_key) => match exe_key.delete_subkey(PERF_OPTIONS_KEY) {
             Ok(_) => cleanup_empty_exe_key(hklm, exe_key, &exe_path, exe_name),
-            Err(error) => format!("{}: 删除配置失败: {}", exe_name, error),
+            Err(error) => format!("{}: 恢复失败：{}", exe_name, error),
         },
-        Err(_) => format!("{}: 未找到配置", exe_name),
+        Err(_) => format!("{}: 未配置", exe_name),
     }
 }
 
@@ -223,15 +279,48 @@ fn cleanup_empty_exe_key(hklm: &RegKey, exe_key: RegKey, exe_path: &str, exe_nam
     drop(exe_key);
 
     if !exe_key_is_empty {
-        return format!("{}: 已恢复默认配置，保留非空注册表项", exe_name);
+        return format!("{}: 已恢复默认，保留其他配置", exe_name);
     }
 
     match hklm.delete_subkey(exe_path) {
-        Ok(_) => format!("{}: 已恢复默认配置，并删除空注册表项", exe_name),
-        Err(error) => format!(
-            "{}: 已恢复默认配置，但删除空注册表项失败: {}",
-            exe_name, error
-        ),
+        Ok(_) => format!("{}: 已恢复默认", exe_name),
+        Err(error) => format!("{}: 已恢复默认，但清理空项失败：{}", exe_name, error),
+    }
+}
+
+pub fn normalize_custom_exe_name(exe_name: &str) -> Result<String, String> {
+    let trimmed = exe_name.trim();
+
+    if trimmed.is_empty() {
+        return Err("请填写程序名。".to_string());
+    }
+
+    if trimmed.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|']) {
+        return Err("程序名只需要填写 exe 文件名，例如 example.exe。".to_string());
+    }
+
+    if !trimmed.to_ascii_lowercase().ends_with(".exe") {
+        return Err("程序名需要以 .exe 结尾。".to_string());
+    }
+
+    Ok(trimmed.to_string())
+}
+
+pub fn validate_priority(value: u32, label: &str) -> Result<(), String> {
+    if [1, 2, 3, 5].contains(&value) {
+        Ok(())
+    } else {
+        Err(format!("{} 的取值无效。", label))
+    }
+}
+
+fn priority_label(value: u32) -> &'static str {
+    match value {
+        1 => "低",
+        2 => "普通",
+        3 => "高",
+        5 => "实时",
+        _ => "未知",
     }
 }
 

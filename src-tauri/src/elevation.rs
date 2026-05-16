@@ -18,7 +18,23 @@ pub fn handle_autostart_elevation() {
 }
 
 #[cfg(target_os = "windows")]
+pub fn request_admin_restart() -> Result<String, String> {
+    relaunch_as_admin(None)?;
+    Ok("已请求管理员权限，请在弹出的系统窗口中确认。".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn request_admin_restart() -> Result<String, String> {
+    Err("当前系统不支持在线提权。".to_string())
+}
+
+#[cfg(target_os = "windows")]
 fn relaunch_autostart_as_admin() -> Result<(), String> {
+    relaunch_as_admin(Some(ELEVATED_AUTOSTART_ARG))
+}
+
+#[cfg(target_os = "windows")]
+fn relaunch_as_admin(parameters: Option<&str>) -> Result<(), String> {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Shell::ShellExecuteW;
@@ -27,14 +43,17 @@ fn relaunch_autostart_as_admin() -> Result<(), String> {
     let exe_path = current_exe_path()?;
     let operation = to_wide_string("runas");
     let file = to_wide_string(&exe_path);
-    let parameters = to_wide_string(ELEVATED_AUTOSTART_ARG);
+    let parameter_buffer = parameters.map(to_wide_string);
+    let parameter_ptr = parameter_buffer
+        .as_ref()
+        .map_or(PCWSTR::null(), |value| PCWSTR(value.as_ptr()));
 
     let result = unsafe {
         ShellExecuteW(
             HWND(std::ptr::null_mut()),
             PCWSTR(operation.as_ptr()),
             PCWSTR(file.as_ptr()),
-            PCWSTR(parameters.as_ptr()),
+            parameter_ptr,
             PCWSTR::null(),
             SW_SHOWNORMAL,
         )
@@ -42,7 +61,7 @@ fn relaunch_autostart_as_admin() -> Result<(), String> {
     let result_code = result.0 as isize;
 
     if result_code <= 32 {
-        return Err(format!("request admin permission failed: {}", result_code));
+        return Err(format!("请求管理员权限失败，错误码：{}", result_code));
     }
 
     Ok(())

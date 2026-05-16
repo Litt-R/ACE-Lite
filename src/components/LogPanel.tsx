@@ -14,10 +14,10 @@ export function LogPanel({ logs, containerRef, onExportLogs }: LogPanelProps) {
       <Box display="flex" alignItems="flex-start" justifyContent="space-between" gap={1} sx={{ mb: 1 }}>
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.2 }}>
-            运行日志
+            日志
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            记录本次运行中的检测、策略写入和限制结果
+            本次操作记录
           </Typography>
         </Box>
         <Button size="small" variant="outlined" onClick={onExportLogs} disabled={logs.length === 0}>

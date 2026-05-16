@@ -62,4 +62,21 @@ pub struct RegistryPriorityState {
     pub page_priority: Option<u32>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StoredPriorityPolicy {
+    pub id: String,
+    pub name: String,
+    pub exe_name: String,
+    pub cpu_priority: u32,
+    pub io_priority: u32,
+    pub page_priority: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PolicyConfig {
+    pub version: u32,
+    pub config_path: String,
+    pub custom_policies: Vec<StoredPriorityPolicy>,
+}
+
 pub type RegistryPriorityStates = HashMap<String, RegistryPriorityState>;

@@ -1,4 +1,4 @@
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, Chip, Paper, Typography } from '@mui/material';
 import type { SystemInfo } from '../types/app';
 
 interface SystemInfoCardProps {
@@ -7,8 +7,8 @@ interface SystemInfoCardProps {
 
 function InfoItem({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover', minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary">
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.1 }}>
         {label}
       </Typography>
       <Typography variant="body2" fontWeight={700} noWrap title={title ?? value}>
@@ -19,31 +19,35 @@ function InfoItem({ label, value, title }: { label: string; value: string; title
 }
 
 export function SystemInfoCard({ systemInfo }: SystemInfoCardProps) {
+  if (!systemInfo) {
+    return (
+      <Paper elevation={0} sx={{ p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+        <Typography variant="body2" color="text.secondary">
+          正在读取环境...
+        </Typography>
+      </Paper>
+    );
+  }
+
   return (
-    <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={2} sx={{ mb: 1 }}>
+    <Paper elevation={0} sx={{ p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+      <Box display="grid" gridTemplateColumns={{ xs: '1fr 1fr', md: 'minmax(220px, 1.7fr) 1fr 0.7fr 0.7fr' }} gap={1} alignItems="center">
+        <InfoItem label="CPU" value={systemInfo.cpu_model} />
+        <InfoItem label="核心" value={`${systemInfo.cpu_cores} 物理 / ${systemInfo.cpu_logical_cores} 逻辑`} />
+        <InfoItem label="内存" value={`${systemInfo.total_memory_gb.toFixed(1)} GB`} />
         <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            本机环境
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.1 }}>
+            权限
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            用于判断权限、核心数量和运行环境
-          </Typography>
+          <Chip
+            size="small"
+            label={systemInfo.is_admin ? '管理员' : '普通'}
+            color={systemInfo.is_admin ? 'success' : 'warning'}
+            variant={systemInfo.is_admin ? 'filled' : 'outlined'}
+            sx={{ height: 22, mt: 0.2 }}
+          />
         </Box>
       </Box>
-
-      {systemInfo ? (
-        <Box display="grid" gridTemplateColumns="2fr 1fr 1fr 1fr" gap={0.8}>
-          <InfoItem label="CPU" value={systemInfo.cpu_model} />
-          <InfoItem label="CPU 核心" value={`${systemInfo.cpu_cores} 物理 / ${systemInfo.cpu_logical_cores} 逻辑`} />
-          <InfoItem label="内存" value={`${systemInfo.total_memory_gb.toFixed(1)} GB`} />
-          <InfoItem label="权限" value={systemInfo.is_admin ? '管理员' : '普通用户'} />
-        </Box>
-      ) : (
-        <Typography variant="body2" color="text.secondary">
-          加载中...
-        </Typography>
-      )}
     </Paper>
   );
 }

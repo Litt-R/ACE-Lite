@@ -1,5 +1,6 @@
 mod autostart;
 mod elevation;
+mod policy_config;
 mod privilege;
 mod process_control;
 mod registry_policy;
@@ -10,11 +11,28 @@ mod types;
 
 use process_control::RestrictionOptions;
 use types::{
-    ProcessPerformance, RegistryPriorityStates, RestrictResult, RuntimeRestrictionStatus,
-    SystemInfo,
+    PolicyConfig, ProcessPerformance, RegistryPriorityStates, RestrictResult,
+    RuntimeRestrictionStatus, StoredPriorityPolicy, SystemInfo,
 };
 
 struct AppState;
+
+fn combined_policy_exe_names() -> Vec<String> {
+    let mut exe_names = registry_policy::managed_exe_names();
+
+    if let Ok(config) = policy_config::load_policy_config() {
+        for policy in config.custom_policies {
+            if !exe_names
+                .iter()
+                .any(|exe_name| exe_name.eq_ignore_ascii_case(&policy.exe_name))
+            {
+                exe_names.push(policy.exe_name);
+            }
+        }
+    }
+
+    exe_names
+}
 
 #[tauri::command]
 async fn restrict_processes(
@@ -105,22 +123,56 @@ async fn reset_league_priority() -> Result<String, String> {
 
 #[tauri::command]
 async fn check_registry_priority() -> Result<String, String> {
-    Ok(registry_policy::check_managed_priorities())
+    Ok(registry_policy::check_priorities_for_exes(
+        &combined_policy_exe_names(),
+    ))
 }
 
 #[tauri::command]
 async fn get_registry_priority_states() -> RegistryPriorityStates {
-    registry_policy::managed_priority_states()
+    registry_policy::priority_states_for_exes(&combined_policy_exe_names())
 }
 
 #[tauri::command]
 async fn reset_registry_priority() -> Result<String, String> {
-    registry_policy::reset_managed_priorities()
+    registry_policy::reset_priorities_for_exes(&combined_policy_exe_names())
 }
 
 #[tauri::command]
 async fn save_report_to_desktop(image_base64: String, filename: String) -> Result<String, String> {
     report::save_report_to_desktop(image_base64, filename)
+}
+
+#[tauri::command]
+async fn request_elevation() -> Result<String, String> {
+    elevation::request_admin_restart()
+}
+
+#[tauri::command]
+async fn apply_custom_priority(
+    exe_name: String,
+    cpu_priority: u32,
+    io_priority: u32,
+    page_priority: u32,
+) -> Result<String, String> {
+    registry_policy::apply_custom_priority(exe_name, cpu_priority, io_priority, page_priority)
+}
+
+#[tauri::command]
+async fn reset_custom_priority(exe_name: String) -> Result<String, String> {
+    registry_policy::reset_custom_priority(exe_name)
+}
+
+#[tauri::command]
+async fn load_policy_config() -> Result<PolicyConfig, String> {
+    policy_config::load_policy_config()
+}
+
+#[tauri::command]
+async fn save_policy_config(
+    custom_policies: Vec<StoredPriorityPolicy>,
+) -> Result<PolicyConfig, String> {
+    policy_config::save_policy_config(custom_policies)
 }
 
 #[tauri::command]
@@ -224,6 +276,11 @@ pub fn run() {
             check_game_processes,
             set_game_process_priority,
             save_report_to_desktop,
+            request_elevation,
+            apply_custom_priority,
+            reset_custom_priority,
+            load_policy_config,
+            save_policy_config,
             raise_crossfire_priority,
             raise_dnf_priority,
             raise_rocoworld_priority,
