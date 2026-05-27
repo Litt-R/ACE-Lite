@@ -42,11 +42,22 @@ fn setup_portable_webview2() {
 #[cfg(target_os = "windows")]
 fn cleanup_legacy_local_appdata_cache() {
     if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-        let legacy_cache_dir = PathBuf::from(local_appdata)
-            .join("com.local.acelite")
-            .join("EBWebView");
+        let legacy_app_dir = PathBuf::from(local_appdata).join("com.local.acelite");
+        let legacy_cache_dir = legacy_app_dir.join("EBWebView");
 
         cleanup_path(&legacy_cache_dir);
+        cleanup_empty_dir(&legacy_app_dir);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn cleanup_empty_dir(path: &Path) {
+    if path
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false)
+    {
+        let _ = std::fs::remove_dir(path);
     }
 }
 

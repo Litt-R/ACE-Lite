@@ -9,6 +9,8 @@ mod system_probe;
 mod tray;
 mod types;
 
+use std::path::PathBuf;
+
 use process_control::RestrictionOptions;
 use types::{
     PolicyConfig, ProcessPerformance, RegistryPriorityStates, RestrictResult,
@@ -16,6 +18,14 @@ use types::{
 };
 
 struct AppState;
+
+fn portable_webview_data_dir() -> PathBuf {
+    let exe_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+    let default_path = PathBuf::from(".");
+    let exe_dir = exe_path.parent().unwrap_or(&default_path);
+
+    exe_dir.join(".webview2-data")
+}
 
 fn combined_policy_exe_names() -> Vec<String> {
     let mut exe_names = registry_policy::managed_exe_names();
@@ -246,6 +256,21 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(AppState)
         .setup(|app| {
+            if let Some(window_config) = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+            {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                    .data_directory(portable_webview_data_dir())
+                    .build()?;
+            } else {
+                return Err("main window config missing".into());
+            }
+
             tray::setup_tray(app.handle())?;
             Ok(())
         })
