@@ -130,7 +130,7 @@ export function AppHeader({
             <Box>
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>权限</Typography>
               <Typography variant="body2" color="text.secondary">
-                写入启动策略、限制受保护进程需要管理员权限。点击“提权”会重新打开一个管理员窗口。
+                默认以当前用户权限启动。写入启动策略、限制受保护进程需要管理员权限；点击“提权”并确认系统提示后，会关闭当前窗口并重新启动为管理员进程。
               </Typography>
             </Box>
             <Box>

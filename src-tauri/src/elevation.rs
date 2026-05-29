@@ -20,7 +20,7 @@ pub fn handle_autostart_elevation() {
 #[cfg(target_os = "windows")]
 pub fn request_admin_restart() -> Result<String, String> {
     relaunch_as_admin(None)?;
-    Ok("已请求管理员权限，请在弹出的系统窗口中确认。".to_string())
+    std::process::exit(0);
 }
 
 #[cfg(not(target_os = "windows"))]

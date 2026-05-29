@@ -1,6 +1,6 @@
 [package]
 name = "ace-lite"
-version = "0.2.1"
+version = "0.2.2"
 description = "ACE-Lite 是一个本地 ACE 资源调度优化工具"
 authors = ["Little-Rainbow"]
 license = "GPL-3.0-only"
